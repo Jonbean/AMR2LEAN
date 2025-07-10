@@ -1,0 +1,113 @@
+{
+  "approximately": {
+    "stem": "Approx", 
+    "category":  "numeric",
+    "arity":     1,
+    "aliases": ["about", "around", "roughly", "nearly"]
+  },
+
+  "at-least": {
+    "stem": "AtLeast",      
+    "category":  "numeric",
+    "arity":     2,
+    "aliases": ["no-less-than"]
+  },
+
+  "more-than": {
+    "stem": "MoreThan",               
+    "category":  "numeric",
+    "arity":     2,
+    "aliases": ["over", "beyond"]                         
+  },
+
+  "less-than": {
+    "stem": "LessThan",               
+    "category":  "numeric",
+    "arity":     2,
+    "aliases": ["below"]  
+  },
+
+  "up-to": {
+    "stem": "LessThanOrEq",               
+    "category":  "numeric",
+    "arity":     2,
+    "aliases": []  
+  },
+
+  "along": {
+    "stem": "Along",
+    "category": "spatial",
+    "arity": 2,
+    "aliases": []
+  },
+
+  "toward": {
+    "stem": "Toward",
+    "category": "spatial",
+    "arity": 2,
+    "aliases": []
+  },
+
+  "between": {
+    "stem": "Between",
+    "category": "spatial",
+    "arity": 2,
+    "aliases": []
+  },
+
+  "down": {
+    "stem": "Down",
+    "category": "spatial",
+    "arity": 2,
+    "aliases": []
+  },
+
+  "up": {
+    "stem": "Up",
+    "category": "spatial",
+    "arity": 2,
+    "aliases": []
+  },
+
+  "through": {
+    "stem": "Through",
+    "category": "spatial",
+    "arity": 2,
+    "aliases": []
+  },
+
+  "across": {
+    "stem": "Across",
+    "category": "spatial",
+    "arity": 2,
+    "aliases": []
+  },
+
+  "under": {
+    "stem": "Under",
+    "category": "spatial",
+    "arity": 2,
+    "aliases": ["beneath", "underneath"]
+  },
+
+  "until": {
+    "stem": "Until",
+    "category":  "temporal",
+    "arity":     2,
+    "aliases": []
+  },
+
+  "outside": {
+    "stem": "Outside",
+    "category": "spatial",
+    "arity": 2,
+    "aliases": ["out-of"]
+  },
+
+  "inside": {
+    "stem": "Inside",
+    "category": "spatial",
+    "arity": 2,
+    "aliases": []
+  }
+}

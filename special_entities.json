@@ -1,0 +1,67 @@
+{
+  "temporal-quantity": {
+    "fields": [
+      { "role": ":quant", "name": "amount", "type": "Float"  },
+      { "role": ":unit",  "name": "unit",   "type": "String" }
+    ]
+  },
+
+  "monetary-quantity": {
+    "fields": [
+      { "role": ":quant", "name": "amount", "type": "Float"  },
+      { "role": ":unit",  "name": "currency", "type": "String" }
+    ]
+  },
+
+  "distance-quantity": {
+    "fields": [
+      { "role": ":quant", "name": "amount", "type": "Float"  },
+      { "role": ":unit",  "name": "unit", "type": "String" }
+    ]
+  },
+  "volume-quantity": {
+    "fields": [
+      { "role": ":quant", "name": "amount", "type": "Float"  },
+      { "role": ":unit",  "name": "unit", "type": "String" }
+    ]
+  },
+
+  "sesmic-quantity": {
+    "fields": [
+      { "role": ":quant", "name": "amount", "type": "Float"  },
+      { "role": ":scale",  "name": "scale", "type": "String" }
+    ]
+  },
+  "date-entity": {
+    "fields": [
+      { "role": ":month", "name": "month", "type": "Nat"  },
+      { "role": ":day",  "name": "day", "type": "Nat" },
+      { "role": ":year",  "name": "year", "type": "Nat" },
+      { "role": ":weekday",  "name": "weekday", "type": "String" },
+      { "role": ":time",  "name": "time", "type": "String" },
+      { "role": ":timezone",  "name": "timezone", "type": "String" },
+      { "role": ":decade",  "name": "decade", "type": "Nat" },
+      { "role": ":dayperiod",  "name": "dayperiod", "type": "String" }
+    ]
+  },
+  "phone-number-entity": {
+    "fields": [
+      { "role": ":value", "name": "phoneNum", "type": "String"  }
+    ]
+  },
+  "string-entity": {
+    "fields": [
+      { "role": ":value", "name": "stringVal", "type": "String"  }
+    ]
+  },
+  "ordinal-entity": {
+    "fields": [
+      { "role": ":value", "name": "order", "type": "Nat"  }
+    ]
+  },
+  "url-entity": {
+    "fields": [
+      { "role": ":value", "name": "URL", "type": "String"  }
+    ]
+  }
+}

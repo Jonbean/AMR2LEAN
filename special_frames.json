@@ -1,0 +1,142 @@
+{
+  "have-rel-role-91": {
+    "roles": [
+      { "index": "0", "name": "entityA" },
+      { "index": "1", "name": "entityB"   },
+      { "index": "2", "name": "roleA"    },
+      { "index": "3", "name": "roleB"    },
+      { "index": "4", "name": "relBasis"    }
+    ]
+  },
+
+  "have-degree-92": {
+    "roles": [
+      { "index": "0", "name": "entity" },
+      { "index": "1", "name": "prop"   },
+      { "index": "2", "name": "degree" }
+    ]
+  }, 
+
+  "have-org-role-91": {
+    "roles": [
+      { "index": "0", "name": "person" },
+      { "index": "1", "name": "organization"},
+      { "index": "2", "name": "title" },
+      { "index": "3", "name": "responsibility" }
+    ]
+  },
+
+  "have-quant-91": {
+    "roles": [
+      { "index": "1", "name": "entity2BQuantified" },
+      { "index": "2", "name": "quantity"},
+      { "index": "3", "name": "degree" },
+      { "index": "4", "name": "compared2" },
+      { "index": "5", "name": "superlative" },
+      { "index": "6", "name": "consequence" }
+    ]
+  },
+
+  "correlate-91": {
+    "roles": [
+      { "index": "1", "name": "Xer" },
+      { "index": "2", "name": "Yer"}
+    ]
+  },
+
+  "byline-91": {
+    "roles": [
+      { "index": "0", "name": "newsOrg" },
+      { "index": "1", "name": "author"},
+      { "index": "2", "name": "illustrator" },
+      { "index": "3", "name": "translator" },
+      { "index": "4", "name": "means" }
+    ]
+  },
+
+  "distribution-range-91": {
+    "roles": [
+      { "index": "1", "name": "mean" },
+      { "index": "2", "name": "lowerBound"},
+      { "index": "3", "name": "upperBound" },
+      { "index": "4", "name": "distanceFromCenter" },
+      { "index": "5", "name": "confidencePercentage" },
+      { "index": "6", "name": "deviation" },
+      { "index": "7", "name": "distributionType" }
+    ]
+  },
+
+
+  "have-degree-of-resemblance-91": {
+    "roles": [
+      { "index": "1", "name": "entityE" },
+      { "index": "2", "name": "comparisonA"},
+      { "index": "3", "name": "comparisonB" },
+      { "index": "4", "name": "EdegreeAthanB" }
+    ]
+  },
+
+  "include-91": {
+    "roles": [
+      { "index": "1", "name": "subset" },
+      { "index": "2", "name": "superset"},
+      { "index": "3", "name": "relativeSize1to2" }
+    ]
+  },
+
+  "instead-of-91": {
+    "roles": [
+      { "index": "1", "name": "preferred" },
+      { "index": "2", "name": "unpreferred"}
+    ]
+  },
+
+  "regardless-91": {
+    "roles": [
+      { "index": "1", "name": "mainEvent" },
+      { "index": "2", "name": "concededFactor"}
+    ]
+  },
+
+  "publication-91": {
+    "roles": [
+      { "index": "0", "name": "authors" },
+      { "index": "1", "name": "title" },
+      { "index": "2", "name": "abstract"},
+      { "index": "3", "name": "fullText" },
+      { "index": "4", "name": "venue" },
+      { "index": "5", "name": "volume" },
+      { "index": "6", "name": "issue" },
+      { "index": "7", "name": "pages" },
+      { "index": "8", "name": "IDs" },
+      { "index": "9", "name": "editors" }
+    ]
+  },  
+
+  "rate-entity-91": {
+    "roles": [
+      { "index": "1", "name": "quantity" },
+      { "index": "2", "name": "commonTimeInterval"},
+      { "index": "3", "name": "moreSpecificTimeInterval" },
+      { "index": "4", "name": "recurringTime" }
+    ]
+  },
+
+  "street-address-91": {
+    "roles": [
+      { "index": "1", "name": "streetNum" },
+      { "index": "2", "name": "road"},
+      { "index": "3", "name": "apt" },
+      { "index": "4", "name": "city" },
+      { "index": "5", "name": "stateOrDistrict" },
+      { "index": "6", "name": "zip" },
+      { "index": "7", "name": "country" }
+    ]
+  },
+  "have-condition-91": {
+    "roles": [
+      { "index": "1", "name": "mainEvent" },
+      { "index": "2", "name": "condition"}
+    ]
+  }
+}
