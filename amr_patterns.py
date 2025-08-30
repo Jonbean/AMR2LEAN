@@ -45,3 +45,4 @@ CONNECTOR = {
 
 UNIVERSAL_QUANR = ["all", "every", "each"]
 
+INDICATOR_NONCORE_RELS = [':plural', ':definite', ':polarity', ':content']
