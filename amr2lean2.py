@@ -1,3 +1,4 @@
+# role centric AMR-to-Lean translation module
 from __future__ import annotations
 import re, textwrap, itertools
 from collections import defaultdict
@@ -13,9 +14,19 @@ from amr_special_preps import PrepInventory
 from collections import deque
 import copy 
 import math 
-from lean_snippets2 import *
+
 from amr_patterns import *
 from utils import *
+
+import importlib
+
+def import_all_from_module(module_name):
+    """Import all public names from a module into the global namespace"""
+    module = importlib.import_module(module_name)
+    globals().update({name: getattr(module, name) 
+                     for name in dir(module) 
+                     if not name.startswith('_')})
+
 
 
 def _is_noun_lemma(lemma: str) -> bool:
@@ -59,37 +70,50 @@ class LeanModule:
         self.noncore_axioms: List[str] = []
         self.import_semantic_gadgets = import_semantic_gadgets
         self.roles_inventory : Set[str] = set()
+        # --- for multi-sentence CoT reasoning translation ---
+        self.lemmas     : List[str] = []        
+        self.theorems   : List[str] = []        
+        self.ordered_decls : List[str] = []     # preserves original AMR order
 
     def update_inventory(self, new_inventory):
         self.roles_inventory.update(new_inventory)
 
     def render(self) -> str:
-        if self.import_semantic_gadgets:
-            parts = [
-                "import AMRGadgets",
-                *self.inductives.values(),
-                "", *self.structs.values(),
-                # "", *self.instances,
-                # "", *self.noncore_preds.values(),
-                # "", *self.exist_axioms,             # quantifier axioms before events
+        # if self.import_semantic_gadgets:
+        #     parts = [
+        #         "import AMRGadgets",
+        #         *self.inductives.values(),
+        #         "", *self.structs.values(),
+        #         "", *self.axioms
+        #         ]
+        # else:            
+        #     parts = [
+        #         ROLE_PREDS.format(roles=", ".join(list(self.roles_inventory))),
+        #         "",
+        #         *self.inductives.values(),
+        #         "", *self.structs.values(),
+        #         "", *self.axioms
+        #         ]
+        # return "\n\n".join(parts)
+        # boilerplate always first
+        header = [
+            ROLE_PREDS.format(roles=", ".join(list(self.roles_inventory))),
+            *self.inductives.values(),
+            "", *self.structs.values(),
+            "", *self.noncore_axioms,
+        ]
+
+        # if we’ve recorded an explicit order, use it; otherwise fall back to old per-kind blocks
+        if self.ordered_decls:
+            parts = header + [""] + self.ordered_decls
+        else:
+            parts = header + [
                 "", *self.axioms,
-                
-                # "", *self.noncore_axioms
-                ]
-        else:            
-            parts = [
-                ROLE_PREDS.format(roles=", ".join(list(self.roles_inventory))),
-                "",
-                *self.inductives.values(),
-                "", *self.structs.values(),
-                # "", *self.instances,
-                # "", *self.noncore_preds.values(),
-                # "", *self.exist_axioms,             # quantifier axioms before events
-                "", *self.axioms,
-                
-                # "", *self.noncore_axioms]
-                ]
-        return "\n\n".join(parts)
+                *([] if not self.lemmas else [""] + self.lemmas),
+                *([] if not self.theorems else [""] + self.theorems),
+            ]
+
+        return "\n\n".join(p for p in parts if str(p).strip())
 
     def single_theorem_render(self, negation=False):
         if negation:
@@ -102,6 +126,22 @@ class LeanModule:
 
         return "\n\n".join(new_theorems)
 
+    def append_decl(self, kind: str, decl_src: str):
+        """Append declaration text in input order; also keep per-kind lists for compatibility."""
+        k = (kind or "axiom").lower().strip()
+        if k in ['lemma', 'theorem']:
+            self.ordered_decls.append('-- [Optional knowledge insertion point: extra axioms may be added here if needed]\n')
+        self.ordered_decls.append(decl_src)
+        if k == "axiom":
+            self.axioms.append(decl_src)
+        elif k == "lemma":
+            self.lemmas.append('-- [Optional knowledge insertion point: extra axioms may be added here if needed]\n')
+            self.lemmas.append(decl_src)
+        elif k == "theorem":
+            self.theorems.append('-- [Optional knowledge insertion point: extra axioms may be added here if needed]\n')
+            self.theorems.append(decl_src)
+        else:
+            self.axioms.append(decl_src)
 
 
 MOD_CACHE = set()   # keep at module level
@@ -113,9 +153,15 @@ default_propbank_root = "/Users/jonzcai/Documents/ComputerScience/NLP/data/datas
 pb_catalog = PropbankCatalogue(default_propbank_root)
 class AMR2LeanTranslator:
     """Call translate(amr_str) -> Lean source string."""
-    def __init__(self, propbank_catelog, import_semantic_gadgets:bool=False):
+    def __init__(self, propbank_catelog, import_semantic_gadgets:bool=False, shorter_variant:bool=False):
         self.pb = propbank_catelog
         self.ent = AMRSpecialEntities("special_entities.json")
+        # ---- create switch for shorter variant vs longer variant
+        self.shorter_variant = shorter_variant
+        if self.shorter_variant:
+            import_all_from_module('lean_snippets3')
+        else:
+            import_all_from_module('lean_snippets2')
         self.M  = LeanModule(import_semantic_gadgets)
         self.import_semantic_gadgets = import_semantic_gadgets
         self.sf = AMRSpecialFrames("special_frames.json")
@@ -149,12 +195,6 @@ class AMR2LeanTranslator:
         # Rule 0: connectives
         if node.text in CONNECTOR:
             if len(node.children) > 0:
-                # cn = next((k for k, v in node.children.items() if v == ":op1"), None)
-                
-                # if SENSE_RE.search(cn.text):
-                #     return "compound-event"
-                # else:
-                #     return "compound-ent"
                 return "compound-e"
             else:
                 return "term-noun"
@@ -232,10 +272,7 @@ class AMR2LeanTranslator:
 
         # Now every node has a .meta dict, so these are safe:
         self._emit_types(tree.node_dict)
-        
-        # self._emit_instances(tree.node_dict)
-        # self._emit_role_assign(tree.top)
-        # self._emit_noncore(self.noncore_roles)
+
         # -- Phase B: build role predicate axioms
         self._emit_axioms(tree.top)
 
@@ -367,15 +404,8 @@ class AMR2LeanTranslator:
                 etc_nodes.append(n)
                 print('etc n.text: ', n.text)
 
-
-            # if n.meta['category'].startswith("compound"):
-            #     # tname = CONNECTOR[n.text]
-            #     event_or_entity = n.meta['category'].split()[-1]
-                
-            #     self._pred_sig[n.var_name] = f'Compound{event_or_entity.capitalize()}'
             if node_cat == 'compound-e':
 
-                # self._pred_sig[n.var_name] = f"Compound{event_or_entity}"
                 self._pred_sig[n.var_name] = "Connector"
 
                 continue
@@ -473,126 +503,6 @@ class AMR2LeanTranslator:
         self.struct_arg_order[spec_frame_name] = {int(r.idx):r.name for r in spec_roles}
         return  GENERIC_STRUCT_TMPL.format(
             name=spec_frame_name, type_params=tparams, fields=fields)
-
-    # ------------------------------------------------------------------ #
-    #  Phase 3 :  concrete constants / structures
-    # ------------------------------------------------------------------ #
-
-    # def _emit_instances(self, nodes: Dict[str, AMRNode]): 
-    #     defs = []               # all pred-like defs
-
-    #     print('in _emit_instances:')
-    #     print('-'*80)
-    #     # ── Phase 1: handle non-predicates (nouns, special entities, connectors) ──
-    #     for n in self.node_order:
-    #         print(f'n: {n.var_name} | {n.text} | ', n.meta)
-            
-    #         node_cat = n.meta['category']
-
-    #         norm_name = n.text.replace("-", "_")
-
-    #         # 1a) skip pure attributes, since they will be instantiated as values directly
-    #         if node_cat in ['attribute', 'float', 'int'] :
-    #             # both are treated as string for the value field of structure
-    #             self._pred_sig[n.var_name] = "String" if node_cat == 'attribute' else node_cat.capitalize()
-    #             continue
-
-    #          # 1b) bare nouns / concepts
-    #         if node_cat in ['term-noun', 'inter-noun']:
-    #             self._pred_sig[n.var_name] = "Entity"
-    #             defs.append(
-    #                 INSTANCE_TMPL.format(
-    #                     var=n.var_name,
-    #                     type="Entity",
-    #                     text=f"{n.text}") +
-    #                 (" -- definite" if n.meta.get("definite")=="+"
-    #                  else " -- indefinite / plural"))
-    #             continue
-
-
-    #         # 1c) prep-like internal nodes are similar but more primitive than special entity
-    #         if node_cat == 'compound-e':
-                
-    #             self._pred_sig[n.var_name] = "Connector"
-
-    #             children_vars = [cn.var_name for cn, rel in n.children.items()]
-    #             child_vars_str = ", ".join(children_vars)
-
-    #             connector_type_str = "And" if n.text == "and" else "Or"
-
-
-    #             defs.append(
-    #                 COMPOUND_TMPL.format(
-    #                     name=n.var_name, 
-    #                     ent_or_event=event_or_entity, 
-    #                     connector_type=connector_type_str, 
-    #                     e_list=child_vars_str)
-    #                 )
-
-    #             continue
-
-    #         if node_cat in ['inter-prep-mod', 'inter-mod']:
-    #             '''
-    #             (...
-    #                 :quant (a / about
-    #                     :op1 (t / temporal-quantity
-    #                         ...))
-    #             )
-    #             '''
-    #             # like about node; will also be defined as special frame with a single op in it
-    #             prep_type = node.text.lower()
-    #             # attributive_head = node.meta['attributive_head']
-    #             child_node_var = list(n.children.keys())[0].var_name
-    #             child_node_type = self.node_type[child_node_var]
-                
-    #             # attr_hd_stru_name = self.node_type[attributive_head]
-    #             inst_name = f'{prep_type}_{n.var_name}_{child_node_type}'
-                
-    #             type_sig_str = f'Modifier {child_node_type}'
-                
-    #             instans_str = list(n.children.keys())[0].var_name
-    #             defs.append(
-    #                 MODIFIER_INST_TMPL.format(name=inst_name, modifier_name=prep_type, modifyee=child_node_var)
-    #                 )
-
-    #             self._pred_sig[n.var_name] = type_sig_str
-    #             continue
-            
-    #         if node_cat == 'special-entity':
-    #             spec_ent = self.ent.get(n.text)
-    #             kvs = []
-    #             for f in spec_ent:
-    #                 # f means field
-    #                 # c is the child node of the special entity node that corresponds to the f field
-    #                 c = next((c for c,r in n.children.items() if r==f.role), None)
-    #                 if c is None:
-    #                     # no fields of this special entity was provided from AMR
-    #                     kvs.append(f"{f.name} := _")
-    #                 elif f.ty == "String":
-    #                     ctext = c.text.strip('"')
-    #                     kvs.append(f'{f.name} := "{ctext}"')
-    #                 else:
-    #                     if c.meta['category'] in ['/', 'flat', 'int']:
-    #                         kvs.append(f"{f.name} := {c.text}")
-    #                     else:
-    #                         kvs.append(f"{f.name} := {c.var_name}")
-
-    #             rec = "{ " + ", ".join(kvs) + " }"
-                
-    #             # record its type sig exactly as its structure name
-    #             self._pred_sig[n.var_name] = norm_name
-    #             defs.append(
-    #                 INSTANCE_TMPL.format(var=n.var_name,
-    #                                      type=norm_name,
-    #                                      text=rec))
-    #             continue
-
-    #         if node_cat in ['special-frame', 'predicate']:
-
-    #             self._pred_sig[n.var_name] = "Event"
-
-    #             defs.append(
-    #                 INSTANCE_TMPL.format(var=n.var_name, type="Event", text=n.text))
        
     #     # -- Phase 5: glue together ---------------------------------------
     #     self.M.instances.extend(defs)
@@ -650,11 +560,6 @@ class AMR2LeanTranslator:
         with :content coerced to arg1, because in PropBank the 'content'
         argument is ARG1 and signals non-veridicality.
         """
-        # def arg_value(node):
-        #     if node.var_name.startswith('attr-'):
-        #         return node.text
-        #     else:
-        #         return node.var_name
 
         arg_pairs, ty_params = [], []
 
@@ -816,11 +721,6 @@ class AMR2LeanTranslator:
                 decl_var = decl_node.var_name
                 self.decl_dependents[decl_var].append(original_node)
 
-            # if entry['node'].var_name != v:
-            #     # lca not itself
-            #     print(meta_nodes[v].var_name, '|', meta_nodes[v].text, '|', meta_nodes[v].type)
-            #     lca_var = entry['node'].var_name
-            #     self.decl_dependents[lca_var] += [meta_nodes[v]]
         print('+'*80)
         print({v: [n.var_name for n in ns] for v, ns in self.decl_dependents.items()})
         print('+'*80)
@@ -833,6 +733,8 @@ class AMR2LeanTranslator:
     def _mk_assign_lines(self, indent, role_id, pred_var, arg_var, role_name):
         let_line = ROLE_ASSIGN_STRU_TMPL.format(indent=indent, role_id=role_id, pred=pred_var, arg=arg_var, role=role_name.lower())
         prop_line = ROLE_ASSIGN_PRED_TMPL.format(indent=indent, role=role_name.upper(), role_id=role_id, pred=pred_var, arg=arg_var)
+        if self.shorter_variant:
+            prop_line = ROLE_ASSIGN_PRED_TMPL_S.format(indent=indent, role=role_name.upper(), pred=pred_var, arg=arg_var)
         return let_line, prop_line
 
     def regular_let_prop_declare(self, inversed_role, pred, arg, indent, role_id, role_name, let_bindings, prop_lines):
@@ -843,7 +745,8 @@ class AMR2LeanTranslator:
         print(let_line)
         print(prop_line)
         print('='*30)
-        let_bindings.append(let_line)
+        if not self.shorter_variant:
+            let_bindings.append(let_line)
         prop_lines.append(prop_line)
 
     def special_ent_declare(self, c, root, role_id, role_name, indent, let_bindings, prop_lines):
@@ -1010,7 +913,7 @@ class AMR2LeanTranslator:
             self.M.roles_inventory.add(role_name.upper())
             role_id = f"{root.var_name}_{c.var_name}"
             c_cat = c.meta['category']
-            # self._check_terminal_declaration(inversed_role, indent, root, c, role_id, role_name, let_bindings, prop_lines, inter_mod_nodes, role_filler_nodes)
+
             # handle single negation of the child
             if len(c.children) == 1 and list(c.children.items())[0][1] == ':polarity' and list(c.children.items())[0][0].text == '-':
                 polarity_neg_flag = True 
@@ -1099,9 +1002,6 @@ class AMR2LeanTranslator:
         if let_block:
             all_lines.append(let_block)
         all_lines.append(prop_block)
-        # if polarity_neg_flag:
-        #     all_lines_block = "\n".join(all_lines)
-        #     return f"{indent}¬ (\n{all_lines_block}\n{indent})"
 
         return "\n".join(all_lines)
 
@@ -1111,8 +1011,74 @@ class AMR2LeanTranslator:
         visited_nodes = set()
         print('in _emit_axioms: self.decl_dependents: ', self.decl_dependents)
         ax_body = self._mk_event_axiom(root, level=1, root_named=False, declared_vars=declared_vars, visited_nodes=visited_nodes)
-        self.M.axioms.append(f"axiom ax_{root.var_name}:\n{ax_body}")
+        # self.M.axioms.append(f"axiom ax_{root.var_name}:\n{ax_body}")
+        # compatibility upgrade for multi-sentence translation
+        decl = f"axiom ax_{root.var_name}:\n{ax_body}"
+        self.M.append_decl("axiom", decl)  # instead of self.M.axioms.append(...)
  
+    # --------------- New Upgrade for CoT sentences ----------------
+    # new declaration methods for mutli-sentence AMR with ordering |
+    # --------------------------------------------------------------
+    def _decl_name(self, root: AMRNode, kind: str, idx: int | None = None, user_name: str | None = None) -> str:
+        base = re.sub(r'[^A-Za-z0-9_]', '_', user_name) if user_name else f"{root.text.replace('-','_')}_{root.var_name}"
+        pref = {"axiom": "ax", "lemma": "lem", "theorem": "thm"}.get(kind, "ax")
+        return f"{pref}_{base}" if idx is None else f"{pref}_{base}_{idx}"
+
+    def _emit_decl(self, root: AMRNode, kind: str = "axiom", name: str | None = None, index: int | None = None, negate: bool = False):
+        """
+        Emit one declaration of kind in {"axiom","lemma","theorem"}.
+        If negate=True and kind=="theorem", wraps body as  ¬ ( ... ).
+        """
+        self.plan_declarations(root)
+        declared_vars, visited_nodes = set(), set()
+        body = self._mk_event_axiom(root, level=1, root_named=False,
+                                    declared_vars=declared_vars, visited_nodes=visited_nodes)
+
+        prop = body if not (negate and kind == "theorem") else f"¬ (\n{body}\n)"
+        nm = self._decl_name(root, kind, idx=index, user_name=name)
+
+        if kind == "axiom":
+            decl = f"axiom {nm}:\n{prop}"
+        elif kind == "lemma":
+            decl = f"lemma {nm} :\n{prop} := by\n  sorry"
+        elif kind == "theorem":
+            decl = f"theorem {nm} :\n{prop} := by\n  sorry"
+        else:
+            decl = f"axiom {nm}:\n{prop}"
+
+        self.M.append_decl(kind, decl)
+
+    def _reset_sentence_state(self):
+        self.struct_arg_order = {}
+        self.node_type = {}
+        self.node_inst_name = {}
+        self._pred_sig = {}
+        self.node_deps = {}
+        self.node_order = []
+        self.let_bound_vars = set()
+        self._prop_cache = {}
+        self._skip_instantiation = set()
+        self.noncore_roles = set()
+
+    def translate_one_as(self, amr_str: str, kind: str = "axiom",
+                         name: str | None = None, sid: str = "", negate: bool = False) -> None:
+        """
+        Translate ONE AMR as axiom|lemma|theorem, reusing the shared LeanModule
+        and preserving overall order across multiple calls.
+        """
+        tree = PenmanAMRTree(amr_str, remove_alignmark=True)
+        if sid:
+            tree.add_sent_mark(sid)
+
+        self._reset_sentence_state()
+        self._filter_i(tree.node_dict)
+        self._annotate_meta(tree.node_dict)
+        self.node_deps, depth, self.noncore_roles = self._annotate_node_category(tree)
+        self.node_order = topo_sort_amr(self.node_deps, depth)[::-1]
+        self._annotate_attributives(tree.node_dict)
+        self._emit_types(tree.node_dict)
+
+        self._emit_decl(tree.top, kind=kind, name=name, negate=negate)
 # -------------------------------------------------------------------------
 # Script entry‑point
 # -------------------------------------------------------------------------
@@ -1139,167 +1105,6 @@ if __name__ == "__main__":
          :destination (l / city :name (n2 / name :op1 "Boulder")))
     """
 
-    # print(t.translate(demo_amr2))
-
-    # demo_amr3 = r"""
-    # (k / know-01~3
-    #    :ARG0 (i / i~0)
-    #    :ARG1 (o / or~7
-    #             :op1 (t / thing~6
-    #                     :ARG1-of (d / do-02~6
-    #                                 :ARG0 i))
-    #             :op2 (t2 / thing~8
-    #                      :manner-of (h / help-01~10
-    #                                    :ARG0 i
-    #                                    :ARG1 (h2 / happy-01~13
-    #                                              :ARG1 i
-    #                                              :mod (a / again~14))
-    #                                    :ARG2 i)))
-    #    :degree (r / really~1)
-    #    :polarity -~2)
-    # """
-
-    # demo_amr3 = r"""
-    # (l / love-01~1
-    #    :ARG0 (i / i~0)
-    #    :ARG1 (g / girl~4
-    #             :ARG1-of (s / same-01~3))
-    #    :duration (a / about~6
-    #                 :op1 (t / temporal-quantity~7,8
-    #                         :quant 6~7,8
-    #                         :unit (y / year~7,8))))
-    # """
-
-    # demo_amr3 = r"""
-    # (l / learn-01~1
-    #    :ARG0 (y / you~1)
-    #    :ARG1 (s / skill~4
-    #             :ARG1-of (n / new-02~5)
-    #             :ARG1-of (e / exemplify-01~3
-    #                         :ARG0 (o / or~13
-    #                                  :op1 (p / play-11~7
-    #                                          :ARG2 (i / instrument~9))
-    #                                  :op2 (d / draw-01~10)
-    #                                  :op3 (t / try-01~11
-    #                                          :ARG1 (s2 / sport~14
-    #                                                    :ARG1-of (n2 / new-02~17
-    #                                                                 :definite -)))
-    #                                  :op4 (d2 / design-01~16
-    #                                           :ARG1 (w / web~15))
-    #                                  :op5 (e2 / et-cetera~10
-    #                                           :definite -))
-    #                         :content-of (p2 / possible-01~3))
-    #             :definite -)
-    #    :mode (i2 / imperative~1))
-    # """
-
-    # demo_amr3 = r'''
-    # (a / and~10
-    #    :op1 (f / find-01~0
-    #            :ARG0 (y / you~3)
-    #            :ARG1 (a2 / activity-06~2
-    #                      :ARG1-of (l / like-01~4
-    #                                  :ARG0 y)
-    #                      :definite -)
-    #            :mode (i / imperative~0))
-    #    :op2 (s / set-02~5
-    #            :ARG0 y
-    #            :ARG1 (g / goal~7
-    #                     :quant some)
-    #            :mode (i2 / imperative~5))
-    #    :op3 (s3 / stick-01~8,9
-    #             :ARG0 y
-    #             :ARG2 g
-    #             :mode (i3 / imperative~8,9
-    #                       :plural +)))
-    # '''
-
-#     demo_amr3 = r'''
-# (p / possible-01~0
-#    :content (m / make-01~1
-#                :ARG0 (y / you~1)
-#                :ARG1 (p2 / playlist~4
-#                          :ARG1-of (n / new-01~3)
-#                          :consist-of (m2 / music~11
-#                                          :ARG1-of (h / happy-01~10)
-#                                          :example (a / and~12
-#                                                      :op1 (m3 / music~17
-#                                                               :ARG1-of (a2 / author-01~16
-#                                                                            :ARG0 (o / organization~15
-#                                                                                     :name (n3 / name~15
-#                                                                                               :op1 "Fleetwood"~15
-#                                                                                               :op2 "Mac"~15)))
-#                                                               :name (n2 / name~17
-#                                                                         :op1 "Don't"~17
-#                                                                         :op2 "Stop"~17))
-#                                                      :op2 (e / et-cetera~13)))
-#                          :definite -)
-#                :ARG2-of (s / start-01~8
-#                            :ARG0 y
-#                            :plural +)
-#                :medium (p3 / product~6
-#                            :name (n4 / name~6
-#                                      :op1 "iTunes"~6))))
-#     '''
-
-    # demo_amr3 = r'''
-    # (c / close-10~2,3
-    #    :ARG1 (i / i~1)
-    #    :ARG2 (p / point~5
-    #             :mod (b / break-01~4
-    #                     :ARG1 i))
-    #    :degree (v / very~1))
-    # '''
-    # demo_amr3 = r'''
-    # (s3a / and~1
-    #      :op1 (s3k / keep-01~1
-    #                :ARG0 (s3i / i~15)
-    #                :ARG1 (s3i2 / it~2)
-    #                :duration (s3f / forever~5))
-    #      :op2 (s3t / tell-01~7
-    #                :ARG0 s3i
-    #                :content s3i2
-    #                :ARG1-of (s3c / cause-01~14
-    #                              :ARG0 (s3p2 / possible-01~17
-    #                                          :content (s3c2 / cope-01~18
-    #                                                         :ARG0 s3i
-    #                                                         :time (s3a2 / anymore~19))
-    #                                          :mod (s3j / just~16)
-    #                                          :polarity -~17)
-    #                              :plural +)
-    #                :ARG2 (s3p / person~9
-    #                           :ARG0-of (s3h / have-rel-role-91~9
-    #                                         :ARG1 s3i
-    #                                         :ARG2 (s3f2 / friend~9)))
-    #                :time (s3b / before~13
-    #                           :op1 (s3n / now~13)
-    #                           :quant (s3f3 / few~11
-    #                                        :op1 (s3t2 / temporal-quantity~12
-    #                                                   :quant 1~12
-    #                                                   :unit (s3m / month~12))
-    #                                        :definite -))
-    #                :time (s3t3 / then~6)))
-    # '''
-
-#     demo_amr3 = r'''
-# (w / want-01
-#     :ARG0 (b / boy
-#         :definite +)
-#     :ARG1 (b1 / believe-01
-#         :ARG0 (g / girl
-#             :definite +)
-#         :ARG1 (a / and
-#             :op1 (e / eat-01
-#                 :ARG0 b
-#                 :ARG1 (p / pizza))
-#             :op2 (d / drink-01
-#                 :ARG0 b 
-#                 :ARG1 (c / coke)))
-#         :frequency ( r2 / rate-entity-91
-#                :ARG1 2
-#                :ARG2 ( t4 / temporal-quantity :quant 1
-#                      :unit ( y / year )))))
-#     '''
     demo_amr3 = r'''
 (s6m / multi-sentence~26
      :snt1 (s6a / and~7

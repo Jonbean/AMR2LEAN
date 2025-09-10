@@ -1,3 +1,5 @@
+# frame centric AMR-to-Lean translation module
+
 from __future__ import annotations
 import re, textwrap, itertools
 from collections import defaultdict, OrderedDict
@@ -60,6 +62,9 @@ class LeanModule:
         self.import_semantic_gadgets = import_semantic_gadgets
         self.roles_inventory : Set[str] = set()
 
+        # ----- for multi-sentence ordered emission -----
+        self.statements_in_order : List[str] = []  # each item is a full Lean declaration text
+
     def update_inventory(self, new_inventory):
         self.roles_inventory.update(new_inventory)
 
@@ -70,26 +75,15 @@ class LeanModule:
                 *self.inductives.values(),
                 "", *self.structs.values(),
                 "", *self.noncore_axioms,
-                # "", *self.instances,
-                # "", *self.noncore_preds.values(),
-                # "", *self.exist_axioms,             # quantifier axioms before events
                 "", *self.axioms,
-                
-                # "", *self.noncore_axioms
                 ]
         else:            
             parts = [
-                # ROLE_PREDS.format(roles=", ".join(list(self.roles_inventory))),
                 *self.inductives.values(),
-
                 "", *self.structs.values(),
                 "", *self.noncore_axioms,
-                # "", *self.instances,
-                # "", *self.noncore_preds.values(),
-                # "", *self.exist_axioms,             # quantifier axioms before events
                 "", *self.axioms,
                 
-                # "", *self.noncore_axioms]
                 ]
         print('-'*80)
         print('self.inductives: ', self.inductives)
@@ -120,6 +114,76 @@ class LeanModule:
             theorem_str
             ]
         return "\n\n".join(parts)
+
+    # NEW: add an ordered statement (axiom/lemma/theorem), with optional negation wrapper
+    def add_statement(self, kind: str, name: str, body: str, negate: bool = False):
+        """
+        kind ∈ {'axiom','lemma','theorem'}
+        name: Lean identifier
+        body: the proposition lines (already formatted/indented)
+        """
+        prop = body
+        if negate:
+            prop = f"  ¬ (\n{body}\n  )"
+
+        if kind == 'axiom':
+            txt = f"{kind} {name}:\n{prop}"
+        elif kind in {'lemma', 'theorem'}:
+            knowledge_insert_pl = '-- [Optional knowledge insertion point: extra axioms may be added here if needed]\n\n'
+            thm_lemma_bdy = f"{kind} {name}:\n{prop}\n:= by\n  sorry"
+            txt = knowledge_insert_pl + thm_lemma_bdy
+        else:
+            raise ValueError(f"Unknown statement kind: {kind}")
+        self.statements_in_order.append(txt)
+
+    # NEW: boilerplate-only rendering (no statements)
+    def render_boilerplate(self) -> str:
+        parts = []
+        if self.import_semantic_gadgets:
+            parts.append("import AMRGadgets")
+
+        # inductives then structs
+        parts.extend(self.inductives.values())
+        if self.structs:
+            parts.append("")
+            parts.extend(self.structs.values())
+
+        # dedupe non-core axioms while preserving order
+        if self.noncore_axioms:
+            parts.append("")
+            seen = set()
+            deduped = []
+            for line in self.noncore_axioms:
+                if line not in seen:
+                    seen.add(line)
+                    deduped.append(line)
+            parts.extend(deduped)
+
+        return "\n\n".join(p for p in parts if p.strip() != "")
+
+    # NEW: final renderer for multi-sentence sequence
+    def render_sequence(self) -> str:
+        top = self.render_boilerplate()
+        stmts = "\n\n".join(self.statements_in_order)
+        if top and stmts:
+            return top + "\n\n" + stmts
+        return top or stmts
+
+    # NEW: merge helper (if need to merge modules)
+    def merge_from(self, other:"LeanModule"):
+        self.inductives.update(other.inductives)
+        for k, v in other.structs.items():
+            if k not in self.structs:
+                self.structs[k] = v
+        # dedupe non-core axioms
+        merged = []
+        seen = set()
+        for line in self.noncore_axioms + other.noncore_axioms:
+            if line not in seen:
+                seen.add(line)
+                merged.append(line)
+        self.noncore_axioms = merged
+        self.roles_inventory.update(other.roles_inventory)
 
 MOD_CACHE = set()   # keep at module level
 
@@ -164,11 +228,6 @@ class AMR2LeanTranslator:
         # Rule 0: connectives
         if node.text in CONNECTOR:
             if len(node.children) > 0:
-                # cn = node.children.keys()[0]
-                # if SENSE_RE.search(cn.text):
-                #     return "compound-event"
-                # else:
-                #     return "compound-ent"
                 return "compound-ent"
             else:
                 return "term-noun"
@@ -218,8 +277,7 @@ class AMR2LeanTranslator:
     # ---------- public entry ----------
     def translate(self, amr_str, sid='') -> str:
         tree = PenmanAMRTree(amr_str, remove_alignmark=True)
-        # print(amr_str)
-        # print([(var_name, n.var_name, n.text) for var_name, n in tree.node_dict.items()])
+
         if sid != '':
             tree.add_sent_mark(sid)
         self._filter_i(tree.node_dict)
@@ -247,28 +305,8 @@ class AMR2LeanTranslator:
 
         # Now every node has a .meta dict, so these are safe:
         self._emit_types()
-        # self._quantifier_axioms(tree.node_dict)
 
-        # self._emit_noncore_struct(self.noncore_roles)
-        # # ── Phase A: build every def … := … (fills self._pred_sig fully) ──
-        # # self._emit_instances(tree.node_dict)
-        # self._emit_modified(self.noncore_roles)
-        # -- Phase B: build role predicate axioms
         self._emit_axioms(tree.top)
-        # self._emit_noncore_axioms(tree.top, )
-        # ── Phase B: now that pred_sig is complete, build axioms & prop_cache ─
-        # self._emit_event_axioms(tree.node_dict)
-
-        # # ── Phase C: now emit connectors from the final prop_cache ──────────
-        # self._emit_connectors(tree.node_dict)
-
-        # # ── rest of your noncore / attributive / modifier passes ───────────
-        # self._emit_noncore_axioms(tree.node_dict)
-        # self._emit_attributive_axioms(tree.node_dict)
-
-
-        # self._emit_modifiers(tree.node_dict)    # still keeps unary adverbs if any
-        # self._emit_modified(tree.node_dict)     # creates *foo_mc* constants
         # ------------------------------------------------------------------
 
         return self.M.render()
@@ -506,12 +544,7 @@ class AMR2LeanTranslator:
                 for child, rel in n.children.items():
                     if rel.startswith(':op'):
                         op_type = self._pred_sig.get(child.var_name, self._node_norm_name(child))
-                        # if op_type == "String":
-                        #     child_val = f'"{child.text}"'
-                        # elif op_type in ["Float", "Int"]:
-                        #     child_val = child.text
-                        # else:
-                        #     child_val = child.var_name
+
                         child_val = self._type_dependent_arg_value(op_type, child)
 
                         ops.append((rel[1:].lower(), op_type, child_val))
@@ -575,7 +608,6 @@ class AMR2LeanTranslator:
             print('etcn.var_name: ', etcn.var_name, '|etcn.text: ', etcn.text)
             print('self._pred_sig[etcn.var_name]: ', self._pred_sig[etcn.var_name])
 
-        # second pass to generate structure claims and axiom claims for noncore relations
 
     # ------------------------------------------------------------------ #
     #  generic struct for special entities such as rate-quantity
@@ -617,27 +649,10 @@ class AMR2LeanTranslator:
         # print('rs.roles: ', [(r.idx, r.fun) for r in rs.roles])
         roles = sorted(rs.roles, key=lambda r: int(r.idx))   # 0,1,2,…
 
-        # tparams = " ".join(f"(t{i+1} : Type)" for i,_ in enumerate(roles))
-        # realized_r_type = {arg_role.lower(): self._pred_sig[cn.var_name] for cn, arg_role in node.children.items() if arg_role.lower().startswith(':arg')}
         roles_types = {f'arg{r.idx}': f'Option Entity' for r in roles}
-        
-        # for cn, arg_role in node.children.items():
-        #     if arg_role.lower().startswith(':arg') and '-' not in arg_role:
-        #         real_arg_name = arg_role.lower()[1:]
-        #         roles_types[real_arg_name] = f'Option {self._pred_sig[cn.var_name]}'
-        #         realized_r_vars[real_arg_name] = f'some {cn.var_name}'
-
-        # # handle potential argx-of case
-        # for pn, arg_role in node.parents.items():
-        #     m = re.match(r':arg(\d+)-of', arg_role, re.I)
-        #     if m:
-        #         real_arg_name = f'arg{m.group(1)}'
-        #         roles_types[real_arg_name] = f'Option {self._pred_sig[pn.var_name]}'
-        #         realized_r_vars[real_arg_name] = f'some {pn.var_name}'
+   
         idx_set = self._roleset_construction(node)
 
-
-        # realized_r_vars = {arg_role.lower(): cn.var_name for cn, arg_role in node.children.items() if arg_role.lower().startswith(':arg')}
         print('-'*80)
         print(node.children)
         print('idx_set: ', idx_set)
@@ -714,19 +729,6 @@ class AMR2LeanTranslator:
     # ------------------------------------------------------------------ #
 
     # ----------  name helper  ----------
-    def _name_literal(self, name_node: AMRNode) -> str | None:
-        """
-        For  (n / name :op1 "Denver" :op2 "International" …)
-        return "Denver International …".  Returns None if pattern not matched.
-        """
-        if name_node.text != "name":
-            return None
-        parts = []
-        for child, rel in name_node.children.items():
-            if rel.startswith(":op"):
-                # leaf nodes in your AMRs are attr-k / "String"
-                parts.append(child.text.strip('"'))
-        return " ".join(parts) if parts else None
 
     def plan_declarations(self, root):
         """
@@ -818,9 +820,6 @@ class AMR2LeanTranslator:
         print(self.decl_plan)
         print('+'*80)
 
-    def _inverse_role_flip(self, inversed_role, pred, arg):
-        return (arg, pred) if inversed_role else (pred, arg)
-
 
     def special_ent_declare(self, c, root, role_id, indent, let_bindings, prop_lines):
         all_roles = self.ent.get(c.text)
@@ -846,40 +845,6 @@ class AMR2LeanTranslator:
         # prop_lines.append(f"{indent}{role_name.upper()} {role_id} {root.var_name} {c.var_name}")
         self.let_bound_vars.add(c.var_name)
 
-    def predicate_declare(self, c, root, role_id, let_or_prop, indent, let_bindings, prop_lines, declared_vars):
-        key = self._predicate_norm_name(c)
-
-        all_roles = self.struct_arg_order.get(c.var_name)
-        # recall: all_roles is a dict of format : {0: "function0", 1: "function1", ...}
-
-        filled_roles = {f"arg{role_idx}": 'none' for role_idx in all_roles.keys()}
-
-        for cc, crel_ in c.children.items():
-            if crel_ in filled_roles:
-                if cc.meta['category'] in ['float', 'int']:
-                    filled_roles[crel_] = cc.text
-                else:
-                    filled_roles[crel_] = cc.var_name
-
-        spec_ent_fields = []
-
-        for fname, fvalue in filled_roles.items():
-            if fvalue != 'none':
-                spec_ent_fields.append(f'{fname[1:]} := some {fvalue}')
-            else:
-                spec_ent_fields.append(f'{fname[1:]} := none')
-
-        # spec_ent_fields = [f'{fname[1:]} := some {fvalue}' for fname, fvalue in filled_roles.items() if fvalue != 'none' else f'{fname[1:]} := none']
-        fields_assignment = ", ".join(spec_ent_fields)
-        c_type = self._pred_sig(c.var_name)
-
-        if let_or_prop == "let":
-            let_bindings.append(f"{indent}let {c.var_name} : {c_type} := " + "{ " + fields_assignment + " }")
-            self.let_bound_vars.add(c.var_name)
-        else:
-            prop_lines.append(f"{indent}{role_name.upper()} {role_id} {root.var_name} {c.var_name}")
-            declared_vars.add(c.var_name)
-   
 
     def _quantify(self, node, declared_vars, quant_lines, prop_lines, indent, quantifier):
         quant_lines.append(f"{indent}{quantifier} {node.var_name} : {self._pred_sig.get(node.var_name, self._node_norm_name(node))}")
@@ -1233,56 +1198,89 @@ class AMR2LeanTranslator:
         ax_body = self._mk_event_axiom(root, level=1, root_named=False, declared_vars=declared_vars, visited_nodes=visited_nodes)
         self.M.axioms.append(f"axiom ax_{root.var_name}:\n{ax_body}")
 
-    # ------------------------------------------------------------------ #
-    #  Phase 5 : non-core semantic edges (literal, preps, generic)
-    # ------------------------------------------------------------------ #
-    
-    # ------------------------------------------------------------------ #
-    #  Phase 6 :  constraint axioms
-    # ------------------------------------------------------------------ #
-    def _emit_attributive_axioms(self, nodes):
-        for n in nodes.values():
-            k = n.meta.get("attributive")
-            if k is None: continue
-            head = n.meta["attr_head"]        # AMRNode of the noun being modified
-            struct = n.text.replace("-", "_")
-            const  = n.var_name
-            field  = f"arg{k}"
-            # equate occ.argk with head constant
-            head.meta.setdefault("mods", []).append(
-                f"(Modifier.eventAdj {const})")
-            body   = f"{struct} _ _ _ {const} ∧ {const}.{field} = {head.var_name}"
-            # optional ∃ for indefinite head
-            if head.meta.get("definite") != "+":
-                body = f"∃ ({head.var_name} : {head.text}), {body}"
-            # self.M.noncore_axioms.append(f"axiom attr_{head.var_name}_{const} : {body}")
 
-    # ------------------------------------------------------------------ #
-    #  Phase 7 :  modifier predicate phase
-    # ------------------------------------------------------------------ #
-    # def _emit_modifiers(self, nodes):
-    #     for n in nodes.values():
-    #         if (n.text in CONNECTOR
-    #                 or self._is_attribute(n) 
-    #                 or self._is_predicate(n)
-    #                 or _is_noun_lemma(n.text) or self.preps.get(n.text) 
-    #                 # or n.text in LITERAL_EDGES.values()
-    #                 or self.ent.get(n.text)
-    #                 or "mods" in n.meta):
-    #             continue
-    #         # declare predicate once
-    #         pname = f"{n.text.capitalize()}"
-    #         if pname not in MOD_CACHE:
-    #             self.M.noncore_preds[pname] = \
-    #                 f"def {pname} {{E : Type}} (e : E) : Prop := True"
-    #             MOD_CACHE.add(pname)
-    #         # attach to parent event/concept
-    #         for parent, rel in n.parents.items():
-    #             if rel in {":degree", ":manner-of", ":mod"}:
-    #                 self.M.noncore_axioms.append(
-    #                     f"axiom mod_{parent.var_name}_{n.var_name} : "
-    #                     f"{pname} {parent.var_name}")
+    def translate_as_prop(self, amr_str: str, sid: str = '', reuse_module: LeanModule | None = None) -> Tuple[str, str]:
+        """
+        Returns (prop_body_str, root_var_name) for this AMR.
+        Side-effect: updates self.M (shared or fresh) with any newly needed boilerplate.
+        It DOES NOT append into self.M.axioms (so the caller can decide axiom/lemma/theorem).
+        """
+        tree = PenmanAMRTree(amr_str, remove_alignmark=True)
+        if sid:
+            tree.add_sent_mark(sid)
+        self._filter_i(tree.node_dict)
+        self._prop_cache = {}
 
+        # If a shared module is provided, use it so boilerplate accumulates across sentences.
+        if reuse_module is not None:
+            self.M = reuse_module
+        else:
+            # fresh (single-sentence) behavior
+            self.M = LeanModule(self.import_semantic_gadgets)
+
+        # --- MUST happen first (same as the translate method) ---
+        self.struct_arg_order = {}
+        self._skip_instantiation = set()
+        self._pred_sig = {}
+        self.noncore_roles = set()
+
+        self._annotate_meta(tree.node_dict)
+        self.node_deps, depth, self.noncore_roles = self._annotate_node_category(tree)
+        self.node_order = topo_sort_amr(self.node_deps, depth)
+        self.node_order.reverse()
+        self._annotate_attributives(tree.node_dict)
+
+        # Emit all types/structs/non-core declarations into self.M (shared across sentences)
+        self._emit_types()
+
+        # Build the proposition body but DO NOT push an axiom
+        self.plan_declarations(tree.top)
+        declared_vars = set()
+        visited_nodes = set()
+        body = self._mk_event_axiom(tree.top, level=1, root_named=False,
+                                    declared_vars=declared_vars, visited_nodes=visited_nodes)
+        return body, tree.top.var_name
+
+class AMR2LeanSequenceTranslator:
+    """
+    Orchestrates multi-sentence translation:
+    - preserves input order
+    - shares boilerplate (inductives/structs/non-core axioms) across sentences
+    - emits statements as axiom/lemma/theorem, with optional negation
+    """
+    def __init__(self, propbank_catalog: PropbankCatalogue, import_semantic_gadgets: bool = False):
+        self.pb = propbank_catalog
+        self.import_semantic_gadgets = import_semantic_gadgets
+        self.M = LeanModule(import_semantic_gadgets=import_semantic_gadgets)
+        self.counter = 0
+
+    def add(self, amr_str: str, kind: str = 'axiom', negate: bool = False, sid: str = '', name: str | None = None):
+        """
+        kind ∈ {'axiom','lemma','theorem'}
+        negate: wrap body with ¬( ... ) for 'negated theorem' use-cases
+        sid: optional sentence id for stable naming
+        name: override the default generated identifier
+        """
+        t = AMR2LeanTranslator(propbank_catelog=self.pb, import_semantic_gadgets=self.import_semantic_gadgets)
+        # Share the same LeanModule so boilerplate accumulates
+        body, root_var = t.translate_as_prop(amr_str, sid=sid, reuse_module=self.M)
+
+        # Create a stable ordered name if not provided
+        self.counter += 1
+        base = f"{sid}_" if sid else ""
+        default_name = {
+            'axiom'   : f"ax_{base}{root_var}",
+            'lemma'   : f"lem_{base}{root_var}",
+            'theorem' : f"thm_{base}{root_var}",
+        }.get(kind, f"stmt_{base}{root_var}")
+        stmt_name = name or default_name
+
+        # Store the statement in order
+        self.M.add_statement(kind=kind, name=stmt_name, body=body, negate=negate)
+
+    def render(self) -> str:
+        """Boilerplate first, then the statements in the exact order added."""
+        return self.M.render_sequence()
 # ---------------------------------------------------------------------------
 # Script entry‑point
 # ---------------------------------------------------------------------------
@@ -1412,31 +1410,37 @@ if __name__ == "__main__":
 #                                      :op1 "iTunes"~6))))
 # #     '''
 
-    demo_amr3 = r'''
-(s9h / have-condition-91~28
-     :ARG1 (s9b / break-down-11~27
-                :ARG0 (s9i / i~7)
-                :manner (s9j / just~26))
-     :ARG2 (s9c / come-on-08~5,6
-                :ARG1 (s9o / or~16
-                           :op1 (s9s / song~1
-                                     :domain (s9s2 / song~12
-                                                   :location (s9w / world~15)
-                                                   :mod (s9e / every~11
-                                                             :degree (s9p / pretty-much~23)))
-                                     :topic (s9l / love~3)
-                                     :definite -)
-                           :op2 (s9s3 / song~18
-                                      :ARG0-of (s9r / remind-01~20
-                                                    :ARG1 (s9s4 / she~25)
-                                                    :ARG2 s9i
-                                                    :definite -))
-                           :definite +)
-                :medium (s9p2 / product~8
-                              :name (s9n / name~8
-                                         :op1 "iTunes"~8)
-                              :poss s9i)))
+#     demo_amr3 = r'''
+# (s9h / have-condition-91~28
+#      :ARG1 (s9b / break-down-11~27
+#                 :ARG0 (s9i / i~7)
+#                 :manner (s9j / just~26))
+#      :ARG2 (s9c / come-on-08~5,6
+#                 :ARG1 (s9o / or~16
+#                            :op1 (s9s / song~1
+#                                      :domain (s9s2 / song~12
+#                                                    :location (s9w / world~15)
+#                                                    :mod (s9e / every~11
+#                                                              :degree (s9p / pretty-much~23)))
+#                                      :topic (s9l / love~3)
+#                                      :definite -)
+#                            :op2 (s9s3 / song~18
+#                                       :ARG0-of (s9r / remind-01~20
+#                                                     :ARG1 (s9s4 / she~25)
+#                                                     :ARG2 s9i
+#                                                     :definite -))
+#                            :definite +)
+#                 :medium (s9p2 / product~8
+#                               :name (s9n / name~8
+#                                          :op1 "iTunes"~8)
+#                               :poss s9i)))
 
+#     '''
+    demo_amr3 = r'''
+(i / imaginary
+    :polarity -
+    :domain (n / number
+        :ARG1-of (r / real-04)))
     '''
     leancode = t.translate(demo_amr3)
     print(leancode)
