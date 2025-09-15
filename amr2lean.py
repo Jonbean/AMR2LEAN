@@ -51,7 +51,7 @@ def _is_mod(lemma: str) -> bool:
 #  Main Lean module container
 # --------------------------------------------------------------------------- #
 class LeanModule:
-    def __init__(self, import_semantic_gadgets=False):
+    def __init__(self, include_nl_comment=False, import_semantic_gadgets=False):
         self.inductives : Dict[str,str] = {'Entity': GENERIC_STRUCT_TMPL.format(name="Entity", fields='  name : String'), 'Prep': GENERIC_STRUCT_TMPL.format(name="Prep", fields='  name : String')}
         self.structs    : Dict[str,str] = {}
         self.instances  : List[str] = []
@@ -64,6 +64,9 @@ class LeanModule:
 
         # ----- for multi-sentence ordered emission -----
         self.statements_in_order : List[str] = []  # each item is a full Lean declaration text
+        print('IN LeanModule!')
+        print(include_nl_comment)
+        self.include_nl_comment = include_nl_comment
 
     def update_inventory(self, new_inventory):
         self.roles_inventory.update(new_inventory)
@@ -116,7 +119,7 @@ class LeanModule:
         return "\n\n".join(parts)
 
     # NEW: add an ordered statement (axiom/lemma/theorem), with optional negation wrapper
-    def add_statement(self, kind: str, name: str, body: str, negate: bool = False):
+    def add_statement(self, kind: str, name: str, body: str, negate: bool = False, nl_body: str = ''):
         """
         kind ∈ {'axiom','lemma','theorem'}
         name: Lean identifier
@@ -134,6 +137,11 @@ class LeanModule:
             txt = knowledge_insert_pl + thm_lemma_bdy
         else:
             raise ValueError(f"Unknown statement kind: {kind}")
+        if self.include_nl_comment:
+            print('include_nl_comment triggered')
+            txt = f'-- natural language description: {nl_body}\n{txt}'
+            print('txt: ', txt)
+
         self.statements_in_order.append(txt)
 
     # NEW: boilerplate-only rendering (no statements)
@@ -192,10 +200,10 @@ MOD_CACHE = set()   # keep at module level
 # --------------------------------------------------------------------------- #
 class AMR2LeanTranslator:
     """Call translate(amr_str) -> Lean source string."""
-    def __init__(self, propbank_catelog, import_semantic_gadgets:bool=False):
+    def __init__(self, propbank_catelog, import_semantic_gadgets:bool=False, include_nl_comment:bool=False):
         self.pb = propbank_catelog
         self.ent = AMRSpecialEntities("special_entities.json")
-        self.M  = LeanModule(import_semantic_gadgets)
+        self.M  = LeanModule(include_nl_comment, import_semantic_gadgets)
         self.import_semantic_gadgets = import_semantic_gadgets
         self.sf = AMRSpecialFrames("special_frames.json")
         self.preps = PrepInventory("special_preps.json")
@@ -1248,20 +1256,21 @@ class AMR2LeanSequenceTranslator:
     - shares boilerplate (inductives/structs/non-core axioms) across sentences
     - emits statements as axiom/lemma/theorem, with optional negation
     """
-    def __init__(self, propbank_catalog: PropbankCatalogue, import_semantic_gadgets: bool = False):
+    def __init__(self, propbank_catalog: PropbankCatalogue, import_semantic_gadgets: bool = False, include_nl_comment: bool = False):
         self.pb = propbank_catalog
         self.import_semantic_gadgets = import_semantic_gadgets
-        self.M = LeanModule(import_semantic_gadgets=import_semantic_gadgets)
+        self.M = LeanModule(import_semantic_gadgets=import_semantic_gadgets, include_nl_comment=include_nl_comment)
         self.counter = 0
+        self.include_nl_comment = include_nl_comment
 
-    def add(self, amr_str: str, kind: str = 'axiom', negate: bool = False, sid: str = '', name: str | None = None):
+    def add(self, amr_str: str, kind: str = 'axiom', negate: bool = False, sid: str = '', name: str | None = None, nl_body:str = ''):
         """
         kind ∈ {'axiom','lemma','theorem'}
         negate: wrap body with ¬( ... ) for 'negated theorem' use-cases
         sid: optional sentence id for stable naming
         name: override the default generated identifier
         """
-        t = AMR2LeanTranslator(propbank_catelog=self.pb, import_semantic_gadgets=self.import_semantic_gadgets)
+        t = AMR2LeanTranslator(propbank_catelog=self.pb, import_semantic_gadgets=self.import_semantic_gadgets, include_nl_comment=self.include_nl_comment)
         # Share the same LeanModule so boilerplate accumulates
         body, root_var = t.translate_as_prop(amr_str, sid=sid, reuse_module=self.M)
 
@@ -1276,7 +1285,7 @@ class AMR2LeanSequenceTranslator:
         stmt_name = name or default_name
 
         # Store the statement in order
-        self.M.add_statement(kind=kind, name=stmt_name, body=body, negate=negate)
+        self.M.add_statement(kind=kind, name=stmt_name, body=body, negate=negate, nl_body=nl_body)
 
     def render(self) -> str:
         """Boilerplate first, then the statements in the exact order added."""
@@ -1294,8 +1303,8 @@ if __name__ == "__main__":
     #                     :ARG1 i))
     #    :degree (v / very))
     # """
-    pb_catalog = PropbankCatalogue("/Users/jonzcai/Documents/ComputerScience/NLP/data/datasets/propbank-frames/frames/")
-    t = AMR2LeanTranslator(pb_catalog)
+    # pb_catalog = PropbankCatalogue("/Users/jonzcai/Documents/ComputerScience/NLP/data/datasets/propbank-frames/frames/")
+    # t = AMR2LeanTranslator(pb_catalog)
     # print(t.translate(demo_amr))
 
 

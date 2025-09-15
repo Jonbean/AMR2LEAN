@@ -7,8 +7,9 @@ class AMR2LeanBatch:
     def __init__(self, propbank_catalog: PropbankCatalogue,
                  import_semantic_gadgets: bool = False,
                  label_map: Dict[str,str] = None,
-                 shorter_variant: bool = False):
-        self.tr = AMR2LeanTranslator(propbank_catalog, import_semantic_gadgets, shorter_variant)
+                 shorter_variant: bool = False,
+                 include_nl_comment: bool = False ):
+        self.tr = AMR2LeanTranslator(propbank_catalog, import_semantic_gadgets, shorter_variant, include_nl_comment)
         self.label_map = label_map or {
             "premise": "axiom",
             "implicit-assumption": "axiom",
@@ -41,6 +42,7 @@ class AMR2LeanBatch:
                 kind    = kind,
                 name    = it.get("name"),
                 sid     = it.get("sid", ""),
+                nl_body = it.get("text", ""),
                 negate  = negate
             )
         return self.tr.M.render()
@@ -49,7 +51,7 @@ class AMR2LeanBatch:
 if __name__ == '__main__':
     pb_catalog = PropbankCatalogue("/Users/jonzcai/Documents/ComputerScience/NLP/data/datasets/propbank-frames/frames/")
 
-    batch = AMR2LeanBatch(pb_catalog, import_semantic_gadgets=False, label_map=None, shorter_variant=True)
+    batch = AMR2LeanBatch(pb_catalog, import_semantic_gadgets=False, label_map=None, shorter_variant=True, include_nl_comment=True)
 
     amr1 = '''
 (n / number
@@ -70,9 +72,9 @@ if __name__ == '__main__':
         :ARG1-of (r / real-04)))
     '''
     lean_code = batch.translate_many([
-        {"amr": amr1, "label": "premise",    "name": "Prem_1"},
-        {"amr": amr2, "label": "premise", "name": "Prem_2"},
-        {"amr": amr3, "label": "conclusion", "name": "Thm_3"}
+        {"amr": amr1, "label": "premise",   "name": "Prem_1", "text": "test body text1" },
+        {"amr": amr2, "label": "premise",   "name": "Prem_2", "text": "test body text2"},
+        {"amr": amr3, "label": "conclusion","name": "Thm_3",  "text": "test body text3"}
     ])
 
     with open("./CoT/cot-test1.lean", "w") as f:

@@ -14,7 +14,7 @@ class AMR2LeanBatch:
       - optional negation per item (or inferred if label is 'contradiction').
     """
     def __init__(self, propbank_catalog: PropbankCatalogue, import_semantic_gadgets: bool = False,
-                 label_map: Dict[str, str] = None):
+                 label_map: Dict[str, str] = None, include_nl_comment: bool = False):
         self.pb = propbank_catalog
         self.import_semantic_gadgets = import_semantic_gadgets
         # default mapping (you can override by passing label_map)
@@ -27,6 +27,7 @@ class AMR2LeanBatch:
             "hypothesis": "theorem",
             "claim": "theorem",
         })
+        self.include_nl_comment = include_nl_comment
 
     def _to_kind_and_neg(self, label: str) -> Tuple[str, bool]:
         lab = (label or "").strip().lower()
@@ -44,18 +45,18 @@ class AMR2LeanBatch:
           - "negate"(bool)  : optional explicit negation
           - "sid"   (str)   : optional sentence id/stable tag
         """
-        seq = AMR2LeanSequenceTranslator(self.pb, import_semantic_gadgets=self.import_semantic_gadgets)
+        seq = AMR2LeanSequenceTranslator(self.pb, import_semantic_gadgets=self.import_semantic_gadgets, include_nl_comment=self.include_nl_comment)
 
         for idx, item in enumerate(items, start=1):
             amr = item["amr"]
             label = item.get("label", "premise")
             name = item.get("name", None)
             sid  = item.get("sid", f"s{idx}")
-
+            nl_body = item.get("text", '')
             kind, inferred_neg = self._to_kind_and_neg(label)
             negate = bool(item.get("negate", inferred_neg))
 
-            seq.add(amr_str=amr, kind=kind, name=name, negate=negate, sid=sid)
+            seq.add(amr_str=amr, kind=kind, name=name, negate=negate, sid=sid, nl_body=nl_body)
 
         code = seq.render()
 
@@ -64,7 +65,7 @@ class AMR2LeanBatch:
 if __name__ == '__main__':
     pb_catalog = PropbankCatalogue("/Users/jj/data/datasets/propbank-frames/frames/")
 
-    batch = AMR2LeanBatch(pb_catalog, import_semantic_gadgets=False, label_map=None)
+    batch = AMR2LeanBatch(pb_catalog, import_semantic_gadgets=False, label_map=None, include_nl_comment=True)
 
     amr1 = r'''
     (n / number
@@ -86,9 +87,9 @@ if __name__ == '__main__':
     '''
 
     lean_code = batch.translate_many([
-        {"amr": amr1, "label": "premise",    "name": "Prem_1"},
-        {"amr": amr2, "label": "premise",    "name": "Prem_2"},
-        {"amr": amr3, "label": "conclusion", "name": "Thm_3"}
+        {"amr": amr1, "label": "premise",    "name": "Prem_1", "text": "some test body1"},
+        {"amr": amr2, "label": "premise",    "name": "Prem_2", "text": "some test body2"},
+        {"amr": amr3, "label": "conclusion", "name": "Thm_3", "text": "some test body3"}
     ])
 
     with open("./CoT/cot-test2.lean", "w") as f:

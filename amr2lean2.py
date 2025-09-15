@@ -153,7 +153,7 @@ default_propbank_root = "/Users/jonzcai/Documents/ComputerScience/NLP/data/datas
 pb_catalog = PropbankCatalogue(default_propbank_root)
 class AMR2LeanTranslator:
     """Call translate(amr_str) -> Lean source string."""
-    def __init__(self, propbank_catelog, import_semantic_gadgets:bool=False, shorter_variant:bool=False):
+    def __init__(self, propbank_catelog, import_semantic_gadgets:bool=False, shorter_variant:bool=False, include_nl_comment:bool=False):
         self.pb = propbank_catelog
         self.ent = AMRSpecialEntities("special_entities.json")
         # ---- create switch for shorter variant vs longer variant
@@ -173,6 +173,7 @@ class AMR2LeanTranslator:
         self.node_deps : Dict[AMRNode, set] = {}
         self.node_order : List[AMRNode] = []
         self.let_bound_vars = set()
+        self.include_nl_comment = include_nl_comment
 
     @staticmethod
     def _is_predicate(node:AMRNode) -> bool:
@@ -1024,7 +1025,7 @@ class AMR2LeanTranslator:
         pref = {"axiom": "ax", "lemma": "lem", "theorem": "thm"}.get(kind, "ax")
         return f"{pref}_{base}" if idx is None else f"{pref}_{base}_{idx}"
 
-    def _emit_decl(self, root: AMRNode, kind: str = "axiom", name: str | None = None, index: int | None = None, negate: bool = False):
+    def _emit_decl(self, root: AMRNode, kind: str = "axiom", name: str | None = None, index: int | None = None, negate: bool = False, nl_body: str = ""):
         """
         Emit one declaration of kind in {"axiom","lemma","theorem"}.
         If negate=True and kind=="theorem", wraps body as  ¬ ( ... ).
@@ -1046,6 +1047,9 @@ class AMR2LeanTranslator:
         else:
             decl = f"axiom {nm}:\n{prop}"
 
+        if self.include_nl_comment:
+            decl = f"-- natural language description: {nl_body}\n{decl}"
+
         self.M.append_decl(kind, decl)
 
     def _reset_sentence_state(self):
@@ -1061,7 +1065,7 @@ class AMR2LeanTranslator:
         self.noncore_roles = set()
 
     def translate_one_as(self, amr_str: str, kind: str = "axiom",
-                         name: str | None = None, sid: str = "", negate: bool = False) -> None:
+                         name: str | None = None, sid: str = "", nl_body: str = "", negate: bool = False) -> None:
         """
         Translate ONE AMR as axiom|lemma|theorem, reusing the shared LeanModule
         and preserving overall order across multiple calls.
@@ -1078,7 +1082,7 @@ class AMR2LeanTranslator:
         self._annotate_attributives(tree.node_dict)
         self._emit_types(tree.node_dict)
 
-        self._emit_decl(tree.top, kind=kind, name=name, negate=negate)
+        self._emit_decl(tree.top, kind=kind, name=name, negate=negate, nl_body=nl_body)
 # -------------------------------------------------------------------------
 # Script entry‑point
 # -------------------------------------------------------------------------
